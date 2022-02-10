@@ -10,6 +10,7 @@ from pathlib import Path
 import mobsf.MalwareAnalyzer.views.Trackers as Trackers
 import mobsf.MalwareAnalyzer.views.VirusTotal as VirusTotal
 from mobsf.MalwareAnalyzer.views.apkid import apkid_analysis
+from mobsf.MalwareAnalyzer.views.quark import quark_analysis
 from mobsf.MalwareAnalyzer.views.MalwareDomainCheck import MalwareDomainCheck
 
 from django.conf import settings
@@ -57,18 +58,22 @@ from mobsf.StaticAnalyzer.views.android.xapk import (
     handle_split_apk,
     handle_xapk,
 )
-from mobsf.StaticAnalyzer.views.shared_func import (
+from mobsf.StaticAnalyzer.views.common.shared_func import (
     firebase_analysis,
+    get_avg_cvss,
     hash_gen,
-    score,
     unzip,
     update_scan_timestamp,
+)
+from mobsf.StaticAnalyzer.views.common.appsec import (
+    get_android_dashboard,
 )
 
 from androguard.core.bytecodes import apk
 
 
 logger = logging.getLogger(__name__)
+logging.getLogger('androguard').setLevel(logging.ERROR)
 
 
 @register.filter
@@ -101,7 +106,7 @@ def static_analyzer(request, api=False):
                     ('.apk', '.xapk', '.zip', '.apks'))
                 and typ in ['zip', 'apk', 'xapk', 'apks']):
             app_dic['dir'] = Path(settings.BASE_DIR)  # BASE DIR
-            app_dic['app_name'] = filename  # APP ORGINAL NAME
+            app_dic['app_name'] = filename  # APP ORIGINAL NAME
             app_dic['md5'] = checksum  # MD5
             # APP DIRECTORY
             app_dic['app_dir'] = Path(settings.UPLD_DIR) / checksum
@@ -223,6 +228,10 @@ def static_analyzer(request, api=False):
                         'apk',
                         app_dic['manifest_file'])
 
+                    quark_results = quark_analysis(
+                        app_dic['app_dir'],
+                        app_dic['app_path'])
+
                     # Get the strings from android resource and shared objects
                     string_res = strings_from_apk(
                         app_dic['app_file'],
@@ -264,6 +273,7 @@ def static_analyzer(request, api=False):
                                 cert_dic,
                                 elf_dict['elf_analysis'],
                                 apkid_results,
+                                quark_results,
                                 tracker_res,
                             )
                             update_scan_timestamp(app_dic['md5'])
@@ -278,6 +288,7 @@ def static_analyzer(request, api=False):
                                 cert_dic,
                                 elf_dict['elf_analysis'],
                                 apkid_results,
+                                quark_results,
                                 tracker_res,
                             )
                     except Exception:
@@ -290,10 +301,12 @@ def static_analyzer(request, api=False):
                         cert_dic,
                         elf_dict['elf_analysis'],
                         apkid_results,
+                        quark_results,
                         tracker_res,
                     )
-                context['average_cvss'], context[
-                    'security_score'] = score(context['code_analysis'])
+                context['appsec'] = get_android_dashboard(context, True)
+                context['average_cvss'] = get_avg_cvss(
+                    context['code_analysis'])
                 context['dynamic_analysis_done'] = is_file_exists(
                     os.path.join(app_dic['app_dir'], 'logcat.txt'))
 
@@ -309,11 +322,12 @@ def static_analyzer(request, api=False):
                 else:
                     return render(request, template, context)
             elif typ == 'zip':
-                ios_ret = HttpResponseRedirect(
+                ret = (
                     '/static_analyzer_ios/?name='
                     + app_dic['app_name']
                     + '&type=ios&checksum='
-                    + app_dic['md5'])
+                    + app_dic['md5']
+                )
                 # Check if in DB
                 # pylint: disable=E1101
                 cert_dic = {
@@ -339,7 +353,7 @@ def static_analyzer(request, api=False):
                     if api:
                         return {'type': 'ios'}
                     else:
-                        return ios_ret
+                        return HttpResponseRedirect(ret)
                 else:
                     logger.info('Extracting ZIP')
                     app_dic['files'] = unzip(
@@ -352,7 +366,8 @@ def static_analyzer(request, api=False):
                         if api:
                             return {'type': 'ios'}
                         else:
-                            return ios_ret
+                            ret += f'&rescan={str(int(rescan))}'
+                            return HttpResponseRedirect(ret)
                     app_dic['certz'] = get_hardcoded_cert_keystore(
                         app_dic['files'])
                     app_dic['zipped'] = pro_type
@@ -439,6 +454,11 @@ def static_analyzer(request, api=False):
                             'Performing Malware Check on extracted Domains')
                         code_an_dic['domains'] = MalwareDomainCheck().scan(
                             list(set(code_an_dic['urls_list'])))
+                        # Extract Trackers from Domains
+                        trk = Trackers.Trackers(
+                            None, app_dic['tools_dir'])
+                        trackers = trk.get_trackers_domains_or_deps(
+                            code_an_dic['domains'], [])
                         logger.info('Connecting to Database')
                         try:
                             # SAVE TO DB
@@ -453,7 +473,8 @@ def static_analyzer(request, api=False):
                                     cert_dic,
                                     [],
                                     {},
-                                    {},
+                                    [],
+                                    trackers,
                                 )
                                 update_scan_timestamp(app_dic['md5'])
                             else:
@@ -467,7 +488,8 @@ def static_analyzer(request, api=False):
                                     cert_dic,
                                     [],
                                     {},
-                                    {},
+                                    [],
+                                    trackers,
                                 )
                         except Exception:
                             logger.exception('Saving to Database Failed')
@@ -479,7 +501,8 @@ def static_analyzer(request, api=False):
                             cert_dic,
                             [],
                             {},
-                            {},
+                            [],
+                            trackers,
                         )
                     else:
                         msg = 'This ZIP Format is not supported'
@@ -496,8 +519,9 @@ def static_analyzer(request, api=False):
                             }
                             template = 'general/zip.html'
                             return render(request, template, ctx)
-                context['average_cvss'], context[
-                    'security_score'] = score(context['code_analysis'])
+                context['appsec'] = get_android_dashboard(context, True)
+                context['average_cvss'] = get_avg_cvss(
+                    context['code_analysis'])
                 template = 'static_analysis/android_source_analysis.html'
                 if api:
                     return context

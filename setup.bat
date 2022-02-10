@@ -1,11 +1,17 @@
 @echo off
 rem Python Check
+set /a count=0
 where python >nul 2>&1 && (
-  echo [INSTALL] Python is available
+  echo [INSTALL] Checking for Python version 3.8+
   :redo
-  rem Python Version Check
-  for /F "tokens=* USEBACKQ" %%F IN (`python --version`) DO (
-    set var=%%F
+  if %count% lss 3 (
+    set /a count+=1
+    rem Python Version Check
+    for /F "tokens=* USEBACKQ" %%F IN (`python --version`) DO (
+      set var=%%F
+    )
+  ) else (
+    exit /b
   )
   echo %var%|findstr /R "[3].[89]" >nul
   if errorlevel 1 (
@@ -31,7 +37,7 @@ where python >nul 2>&1 && (
     echo [INSTALL] Found OpenSSL executable
   ) else (
    echo [ERROR] OpenSSL executable not found in [C:\\Program Files\\OpenSSL-Win64\\bin\\openssl.exe]
-   echo [INFO] Install OpenSSL non-light version - https://slproweb.com/products/Win32OpenSSL.html
+   echo [INFO] Install OpenSSL non-light version - https://slproweb.com/download/Win64OpenSSL-3_0_0.exe
    pause
    exit /b
   )
@@ -57,6 +63,7 @@ where python >nul 2>&1 && (
   set INCLUDE=C:\Program Files\OpenSSL-Win64\include;%INCLUDE%
 
   echo [INSTALL] Installing Requirements
+  %venv% -m pip install --no-cache-dir wheel
   %venv% -m pip install --no-cache-dir --use-deprecated=legacy-resolver -r requirements.txt
   
   echo [INSTALL] Clean Up

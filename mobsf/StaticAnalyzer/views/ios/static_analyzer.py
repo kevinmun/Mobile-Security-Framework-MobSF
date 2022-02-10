@@ -4,6 +4,7 @@ import logging
 import re
 from pathlib import Path
 
+import mobsf.MalwareAnalyzer.views.Trackers as Trackers
 import mobsf.MalwareAnalyzer.views.VirusTotal as VirusTotal
 
 from django.conf import settings
@@ -27,11 +28,19 @@ from mobsf.StaticAnalyzer.views.ios.icon_analysis import (
     get_icon,
     get_icon_source,
 )
-from mobsf.StaticAnalyzer.views.ios.plist_analysis import plist_analysis
-from mobsf.StaticAnalyzer.views.shared_func import (
+from mobsf.StaticAnalyzer.views.ios.plist_analysis import (
+    get_plist_secrets,
+    plist_analysis,
+)
+from mobsf.StaticAnalyzer.views.common.shared_func import (
     firebase_analysis,
-    hash_gen, score, unzip,
+    get_avg_cvss,
+    hash_gen,
+    unzip,
     update_scan_timestamp,
+)
+from mobsf.StaticAnalyzer.views.common.appsec import (
+    get_ios_dashboard,
 )
 
 logger = logging.getLogger(__name__)
@@ -65,7 +74,7 @@ def static_analyzer_ios(request, api=False):
                 and (file_type in ['ipa', 'ios'])):
             app_dict = {}
             app_dict['directory'] = Path(settings.BASE_DIR)  # BASE DIR
-            app_dict['file_name'] = filename  # APP ORGINAL NAME
+            app_dict['file_name'] = filename  # APP ORIGINAL NAME
             app_dict['md5_hash'] = checksum  # MD5
             app_dir = Path(settings.UPLD_DIR) / checksum
             tools_dir = app_dict[
@@ -116,6 +125,8 @@ def static_analyzer_ios(request, api=False):
                         app_dict['bin_dir'], app_dict['md5_hash'], True, 'ipa')
                     infoplist_dict = plist_analysis(app_dict['bin_dir'], False)
                     app_dict['appstore'] = app_search(infoplist_dict.get('id'))
+                    app_dict['secrets'] = get_plist_secrets(
+                        infoplist_dict['plist_xml'])
                     bin_analysis_dict = binary_analysis(
                         app_dict['bin_dir'],
                         tools_dir,
@@ -130,6 +141,11 @@ def static_analyzer_ios(request, api=False):
                     recon = extract_urls_n_email(app_dict['bin_dir'],
                                                  all_files['files_long'],
                                                  bin_analysis_dict['strings'])
+                    # Extract Trackers from Domains
+                    trk = Trackers.Trackers(
+                        None, tools_dir)
+                    trackers = trk.get_trackers_domains_or_deps(
+                        recon['domains'], [])
                     code_dict = {
                         'api': {},
                         'code_anal': {},
@@ -137,6 +153,7 @@ def static_analyzer_ios(request, api=False):
                         'domains': recon['domains'],
                         'emailnfile': recon['emailnfile'],
                         'firebase': firebase_analysis(recon['urls_list']),
+                        'trackers': trackers,
                     }
                     # Saving to DB
                     logger.info('Connecting to DB')
@@ -171,8 +188,9 @@ def static_analyzer_ios(request, api=False):
                     context['virus_total'] = vt.get_result(
                         app_dict['app_path'],
                         app_dict['md5_hash'])
-                context['average_cvss'], context[
-                    'security_score'] = score(context['binary_analysis'])
+                context['appsec'] = get_ios_dashboard(context, True)
+                context['average_cvss'] = get_avg_cvss(
+                    context['binary_analysis'])
                 template = 'static_analysis/ios_binary_analysis.html'
                 if api:
                     return context
@@ -202,6 +220,8 @@ def static_analyzer_ios(request, api=False):
                         'ios')
                     infoplist_dict = plist_analysis(app_dict['app_dir'], True)
                     app_dict['appstore'] = app_search(infoplist_dict.get('id'))
+                    app_dict['secrets'] = get_plist_secrets(
+                        infoplist_dict['plist_xml'])
                     code_analysis_dic = ios_source_analysis(
                         app_dict['app_dir'])
                     # Get App Icon
@@ -211,6 +231,12 @@ def static_analyzer_ios(request, api=False):
                     # Firebase DB Check
                     code_analysis_dic['firebase'] = firebase_analysis(
                         list(set(code_analysis_dic['urls_list'])))
+                    # Extract Trackers from Domains
+                    trk = Trackers.Trackers(
+                        None, tools_dir)
+                    trackers = trk.get_trackers_domains_or_deps(
+                        code_analysis_dic['domains'], [])
+                    code_analysis_dic['trackers'] = trackers
                     fake_bin_dict = {
                         'checksec': {},
                         'libraries': [],
@@ -246,8 +272,9 @@ def static_analyzer_ios(request, api=False):
                         code_analysis_dic,
                         fake_bin_dict,
                         all_files)
-                context['average_cvss'], context[
-                    'security_score'] = score(context['code_analysis'])
+                context['appsec'] = get_ios_dashboard(context, True)
+                context['average_cvss'] = get_avg_cvss(
+                    context['code_analysis'])
                 template = 'static_analysis/ios_source_analysis.html'
                 if api:
                     return context
@@ -266,7 +293,7 @@ def static_analyzer_ios(request, api=False):
             else:
                 return print_n_send_error_response(request, msg, False)
     except Exception as exp:
-        logger.exception('Error Perfroming Static Analysis')
+        logger.exception('Error Performing Static Analysis')
         msg = str(exp)
         exp_doc = exp.__doc__
         if api:

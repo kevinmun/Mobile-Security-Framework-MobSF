@@ -35,8 +35,10 @@ def static_analysis_test():
             if platform.system() == 'Windows' and filename.endswith('.ipa'):
                 continue
             fpath = os.path.join(apk_dir, filename)
-            with open(fpath, 'rb') as filp:
-                response = http_client.post('/upload/', {'file': filp})
+            with open(fpath, 'rb') as file_pointer:
+                response = http_client.post(
+                    '/upload/',
+                    {'file': file_pointer})
                 obj = json.loads(response.content.decode('utf-8'))
                 if response.status_code == 200 and obj['status'] == 'success':
                     logger.info('[OK] Upload OK: %s', filename)
@@ -178,9 +180,11 @@ def api_test():
             if (platform.system() not in ['Darwin', 'Linux']
                     and fpath.endswith('.ipa')):
                 continue
-            with open(fpath, 'rb') as filp:
+            with open(fpath, 'rb') as file_pointer:
                 response = http_client.post(
-                    '/api/v1/upload', {'file': filp}, HTTP_AUTHORIZATION=auth)
+                    '/api/v1/upload',
+                    {'file': file_pointer},
+                    HTTP_AUTHORIZATION=auth)
                 obj = json.loads(response.content.decode('utf-8'))
                 if response.status_code == 200 and 'hash' in obj:
                     logger.info('[OK] Upload OK: %s', filename)
@@ -283,6 +287,28 @@ def api_test():
                 logger.error('Generating JSON Response: %s', jsn['hash'])
                 return True
         logger.info('[OK] JSON Report API test completed')
+        logger.info('Running Scorecard API test')
+        # Scorecard Report
+        for scr in pdfs:
+            if scr['hash'] == '8179b557433835827a70510584f3143e':
+                # Windows Scorecard not yet implemented
+                continue
+            resp = http_client.post(
+                '/api/v1/scorecard', scr, HTTP_AUTHORIZATION=auth)
+            resp_custom = http_client.post(
+                '/api/v1/scorecard', scr, HTTP_X_MOBSF_API_KEY=auth)
+            if resp.status_code == 200 and resp_custom.status_code == 200:
+                rp = json.loads(resp.content.decode('utf-8'))
+                if 'security_score' in rp:
+                    logger.info(
+                        '[OK] Security Score - %s', rp['security_score'])
+                else:
+                    logger.error('Security Score Failed - %s', str(rp))
+                    return True
+            else:
+                logger.error('Scorecard API Failed for - %s', scr['hash'])
+                return True
+        logger.info('[OK] Scorecard API test completed')
         logger.info('Running View Source API test')
         # View Source tests
         files = [{'file': 'opensecurity/helloworld/MainActivity.java',

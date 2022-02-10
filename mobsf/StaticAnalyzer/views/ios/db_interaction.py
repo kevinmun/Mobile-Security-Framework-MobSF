@@ -36,7 +36,7 @@ def get_context_from_db_entry(db_entry):
             'icon_found': db_entry[0].ICON_FOUND,
             'info_plist': db_entry[0].INFO_PLIST,
             'binary_info': python_dict(db_entry[0].BINARY_INFO),
-            'permissions': python_list(db_entry[0].PERMISSIONS),
+            'permissions': python_dict(db_entry[0].PERMISSIONS),
             'ats_analysis': python_list(db_entry[0].ATS_ANALYSIS),
             'binary_analysis': python_list(db_entry[0].BINARY_ANALYSIS),
             'macho_analysis': python_dict(db_entry[0].MACHO_ANALYSIS),
@@ -51,6 +51,8 @@ def get_context_from_db_entry(db_entry):
             'strings': python_list(db_entry[0].STRINGS),
             'firebase_urls': python_list(db_entry[0].FIREBASE_URLS),
             'appstore_details': python_dict(db_entry[0].APPSTORE_DETAILS),
+            'secrets': python_list(db_entry[0].SECRETS),
+            'trackers': python_dict(db_entry[0].TRACKERS),
 
         }
         return context
@@ -102,6 +104,8 @@ def get_context_from_analysis(app_dict,
             'strings': bin_dict['strings'],
             'firebase_urls': code_dict['firebase'],
             'appstore_details': app_dict['appstore'],
+            'secrets': app_dict['secrets'],
+            'trackers': code_dict['trackers'],
         }
         return context
     except Exception:
@@ -151,6 +155,8 @@ def save_or_update(update_type,
             'STRINGS': bin_dict['strings'],
             'FIREBASE_URLS': code_dict['firebase'],
             'APPSTORE_DETAILS': app_dict['appstore'],
+            'SECRETS': app_dict['secrets'],
+            'TRACKERS': code_dict['trackers'],
         }
         if update_type == 'save':
             db_entry = StaticAnalyzerIOS.objects.filter(

@@ -124,7 +124,7 @@ APKPLZ = 'https://apkplz.net/download-app/'
 
 # Database
 # https://docs.djangoproject.com/en/dev/ref/settings/#databases
-# Sqlite3 suport
+# Sqlite3 support
 
 DATABASES = {
     'default': {
@@ -313,7 +313,8 @@ else:
         'com/instabug', 'com/crashlytics/android',
         'kotlinx/', 'kotlin/',
     }
-
+    # Disable CVSSV2 Score by default
+    CVSS_SCORE_ENABLED = False
     # ==============================================
 
     # ======WINDOWS STATIC ANALYSIS SETTINGS ===========
@@ -366,6 +367,7 @@ else:
     # =======ANDROID DYNAMIC ANALYSIS SETTINGS===========
     ANALYZER_IDENTIFIER = ''
     FRIDA_TIMEOUT = 4
+    ACTIVITY_TESTER_SLEEP = 4
     # ==============================================
 
     # ================HTTPS PROXY ===============
@@ -389,6 +391,7 @@ else:
     # --------------------------
     DOMAIN_MALWARE_SCAN = True
     APKID_ENABLED = True
+    QUARK_ENABLED = False
     # ==============================================
 
     # ========DISABLED BY DEFAULT COMPONENTS=========

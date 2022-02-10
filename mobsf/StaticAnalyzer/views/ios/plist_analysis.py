@@ -7,6 +7,7 @@ from plistlib import (
     dumps,
     load,
 )
+from re import sub
 
 from biplist import (
     InvalidPlistException,
@@ -20,6 +21,9 @@ from mobsf.StaticAnalyzer.views.ios.permission_analysis import (
 )
 from mobsf.StaticAnalyzer.views.ios.app_transport_security import (
     check_transport_security,
+)
+from mobsf.StaticAnalyzer.views.common.shared_func import (
+    is_secret,
 )
 
 logger = logging.getLogger(__name__)
@@ -49,7 +53,7 @@ def plist_analysis(src, is_source):
             'pltfm': '',
             'min': '',
             'plist_xml': '',
-            'permissions': [],
+            'permissions': {},
             'inseccon': [],
             'bundle_name': '',
             'build_version_name': '',
@@ -106,8 +110,11 @@ def plist_analysis(src, is_source):
         plist_info['bundle_name'] = plist_obj.get('CFBundleName', '')
         plist_info['bundle_version_name'] = plist_obj.get(
             'CFBundleShortVersionString', '')
-        plist_info['bundle_url_types'] = plist_obj.get(
-            'CFBundleURLTypes', [])
+        btype = plist_obj.get('CFBundleURLTypes', [])
+        if btype and isinstance(btype, dict):
+            # Fixes bugs like # 1885
+            btype = [btype]
+        plist_info['bundle_url_types'] = btype
         plist_info['bundle_supported_platforms'] = plist_obj.get(
             'CFBundleSupportedPlatforms', [])
         logger.info('Checking Permissions')
@@ -117,9 +124,30 @@ def plist_analysis(src, is_source):
             with open(plist_file_, 'rb') as fp:
                 plist_obj_ = load(fp)
             # Check for app-permissions
-            plist_info['permissions'] += check_permissions(plist_obj_)
+            plist_info['permissions'].update(check_permissions(plist_obj_))
             # Check for ats misconfigurations
             plist_info['inseccon'] += check_transport_security(plist_obj_)
         return plist_info
     except Exception:
         logger.exception('Reading from Info.plist')
+
+
+def get_plist_secrets(xml_string):
+    """Get possible hardcoded secrets from plist."""
+    result_list = []
+
+    def _remove_tags(data):
+        """Remove tags from input."""
+        return sub('<[^<]+>', '', data).strip()
+
+    xml_list = xml_string.split('\n')
+
+    for index, line in enumerate(xml_list):
+        if '<key>' in line and is_secret(_remove_tags(line)):
+            nxt = index + 1
+            value = (
+                _remove_tags(xml_list[nxt])if nxt < len(xml_list) else False)
+            if value:
+                result_list.append(
+                    f'{_remove_tags(line)} : {_remove_tags(value)}')
+    return result_list
